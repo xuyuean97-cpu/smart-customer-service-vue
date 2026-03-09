@@ -413,130 +413,105 @@
   <!-- 历史对话抽屉 -->
   <el-drawer
     v-model="historyVisible"
-    title="历史对话"
-    size="40%"
-    :with-header="true"
+    size="460px"
+    :with-header="false"
+    class="history-drawer"
   >
-    <div class="history-panel">
-      <div class="history-toolbar">
-        <el-input
-          v-model="historyKeyword"
-          placeholder="搜索问题 / 回答 / 应用 / 智能体"
-          clearable
-          :prefix-icon="Search"
-          class="history-search"
-        />
-
-        <el-form
-          label-width="70px"
-          size="small"
-          class="history-filter-form"
-          @submit.prevent
-        >
-          <el-form-item label="时间范围">
-            <el-date-picker
-              v-model="historyDateRange"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              unlink-panels
-            />
-          </el-form-item>
-          <el-form-item label="数量限制">
-            <el-input-number
-              v-model="historyLimit"
-              :min="1"
-              :max="1000"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button
-              type="primary"
-              :loading="historyLoading"
-              @click="fetchConversationHistory"
-            >
-              刷新
-            </el-button>
-          </el-form-item>
-        </el-form>
+    <div class="history-chat-container">
+      <!-- 顶部标题栏 -->
+      <div class="history-chat-header">
+        <div class="history-chat-title">
+          <el-icon class="history-chat-icon"><ChatDotRound /></el-icon>
+          <span>聊天记录</span>
+        </div>
+        <div class="history-chat-actions">
+          <el-input
+            v-model="historyKeyword"
+            placeholder="搜索..."
+            clearable
+            :prefix-icon="Search"
+            class="history-chat-search"
+            size="small"
+          />
+          <el-button
+            :icon="Refresh"
+            circle
+            size="small"
+            :loading="historyLoading"
+            @click="fetchConversationHistory"
+            class="history-chat-refresh"
+          />
+        </div>
       </div>
 
-      <el-divider />
+      <!-- 日期筛选 -->
+      <div class="history-date-filter">
+        <el-date-picker
+          v-model="historyDateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          unlink-panels
+          size="small"
+          class="history-date-picker-full"
+        />
+      </div>
 
-      <div class="history-list" v-loading="historyLoading">
+      <!-- 聊天记录区域 -->
+      <div class="history-chat-messages" v-loading="historyLoading" element-loading-text="加载中...">
         <template v-if="filteredHistoryItems.length > 0">
-          <div class="history-cards">
-            <el-card
-              v-for="(item, index) in filteredHistoryItems"
-              :key="getHistoryKey(item, index)"
-              shadow="hover"
-              class="history-card"
-            >
-              <div class="history-card-header">
-                <div class="history-q">
-                  <span class="history-q-label">问</span>
-                  <span class="history-q-text">{{ item.query || '（空）' }}</span>
+          <div class="history-chat-list">
+            <template v-for="(item, index) in filteredHistoryItems" :key="getHistoryKey(item, index)">
+              <!-- 时间分割线 -->
+              <div class="chat-time-divider">
+                <span>{{ formatHistoryDate(item.created_at || item.updated_at || '') }}</span>
+              </div>
+              
+              <!-- 用户消息（右侧） -->
+              <div class="chat-message chat-message-user">
+                <div class="chat-bubble chat-bubble-user">
+                  <div class="chat-bubble-content">{{ item.query || '（无问题内容）' }}</div>
                 </div>
-                <div class="history-time">
-                  {{ formatTime(item.created_at || item.updated_at || '') }}
+                <div class="chat-avatar chat-avatar-user">
+                  <el-icon><User /></el-icon>
                 </div>
               </div>
-
-              <div class="history-tags">
-                <el-tag v-if="item.application_id" size="small" effect="light" type="info">
-                  {{ item.application_id }}
-                </el-tag>
-                <el-tag v-if="item.agent_id" size="small" effect="light" type="primary">
-                  {{ item.agent_id }}
-                </el-tag>
-                <el-tag v-if="item.expert_verified === true" size="small" effect="light" type="success">
-                  专家已校验
-                </el-tag>
-                <el-tag v-else size="small" effect="light" type="warning">
-                  未校验
-                </el-tag>
-                <el-tag v-if="typeof item.quality_score === 'number'" size="small" effect="light" type="info">
-                  评分：{{ item.quality_score.toFixed(2) }}
-                </el-tag>
-              </div>
-
-              <div class="history-a">
-                <div class="history-a-label">答</div>
-                <div class="history-a-body">
-                  <div
-                    class="history-a-text"
+              
+              <!-- 客服回复（左侧） -->
+              <div class="chat-message chat-message-bot">
+                <div class="chat-avatar chat-avatar-bot">
+                  <el-icon><Service /></el-icon>
+                </div>
+                <div class="chat-bubble chat-bubble-bot" @click="toggleHistoryExpanded(item, index)">
+                  <div 
+                    class="chat-bubble-content"
                     :class="{ expanded: isHistoryExpanded(item, index) }"
                   >
-                    {{ item.response || item.expert_corrected_response || '（无回答内容）' }}
+                    {{ item.response || item.expert_corrected_response || '（暂无回复）' }}
                   </div>
-                  <div class="history-a-actions">
-                    <el-button
-                      type="primary"
-                      text
-                      size="small"
-                      @click="toggleHistoryExpanded(item, index)"
-                    >
-                      {{ isHistoryExpanded(item, index) ? '收起' : '展开' }}
-                    </el-button>
+                  <div v-if="!isHistoryExpanded(item, index) && (item.response?.length > 100 || item.expert_corrected_response?.length > 100)" class="chat-expand-tip">
+                    点击展开全部
                   </div>
                 </div>
               </div>
-
-              <div class="history-card-footer">
-                <div class="history-id">
-                  <span v-if="item.run_id">会话：{{ item.run_id }}</span>
-                  <span v-if="item.memory_id">｜记录：{{ item.memory_id }}</span>
-                </div>
-              </div>
-            </el-card>
+            </template>
           </div>
         </template>
-        <el-empty
-          v-else
-          :description="historyKeyword ? '未搜索到匹配的历史对话' : '暂无历史对话记录'"
-        />
+        
+        <!-- 空状态 -->
+        <div v-else class="history-chat-empty">
+          <div class="history-chat-empty-icon">
+            <el-icon :size="56"><ChatDotRound /></el-icon>
+          </div>
+          <div class="history-chat-empty-text">
+            {{ historyKeyword ? '没有找到相关聊天记录' : '暂无聊天记录' }}
+          </div>
+          <div class="history-chat-empty-hint">
+            {{ historyKeyword ? '试试其他关键词' : '开始对话后，记录会显示在这里' }}
+          </div>
+        </div>
       </div>
     </div>
   </el-drawer>
@@ -561,6 +536,7 @@ import {
   Promotion,
   Clock,
   Search,
+  Refresh,
 } from '@element-plus/icons-vue'
 import type { ScrollbarInstance } from 'element-plus'
 
@@ -655,6 +631,33 @@ function formatTime(timeStr: string) {
       hour: '2-digit',
       minute: '2-digit',
     })
+  } catch {
+    return timeStr
+  }
+}
+
+function formatHistoryDate(timeStr: string) {
+  if (!timeStr) return '未知时间'
+  try {
+    const date = new Date(timeStr)
+    const now = new Date()
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 0) {
+      return '今天 ' + date.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    } else if (diffDays === 1) {
+      return '昨天 ' + date.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    } else if (diffDays < 7) {
+      const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+      return weekdays[date.getDay()] + ' ' + date.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    } else {
+      return date.toLocaleString('zh-CN', {
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    }
   } catch {
     return timeStr
   }
@@ -1750,158 +1753,250 @@ onUnmounted(() => {
   right: -8px;
 }
 
-/* === 历史对话抽屉 === */
-.history-panel {
+/* === 历史对话抽屉 - 聊天记录样式 === */
+.history-drawer :deep(.el-drawer__body) {
+  padding: 0;
+}
+
+.history-chat-container {
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: #f0f2f5;
 }
 
-.history-toolbar {
+/* 顶部标题栏 */
+.history-chat-header {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
 }
 
-.history-search {
+.history-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.history-chat-icon {
+  font-size: 22px;
+}
+
+.history-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-chat-search {
+  width: 140px;
+}
+
+.history-chat-search :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  box-shadow: none;
+}
+
+.history-chat-search :deep(.el-input__inner) {
+  color: #fff;
+}
+
+.history-chat-search :deep(.el-input__inner)::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.history-chat-search :deep(.el-input__prefix) {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.history-chat-refresh {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+}
+
+.history-chat-refresh:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 日期筛选 */
+.history-date-filter {
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.history-date-picker-full {
   width: 100%;
 }
 
-.history-filter-form {
-  padding-right: 16px;
-}
-
-.history-list {
+/* 聊天消息区域 */
+.history-chat-messages {
   flex: 1;
-  overflow: auto;
+  overflow-y: auto;
+  padding: 16px;
 }
 
-.history-cards {
+.history-chat-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 2px 2px 16px;
+  gap: 8px;
 }
 
-.history-card {
-  border-radius: 14px;
-  border: 1px solid #eef2f7;
+/* 时间分割线 */
+.chat-time-divider {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
 }
 
-.history-card :deep(.el-card__body) {
-  padding: 14px 14px 12px;
+.chat-time-divider span {
+  background: rgba(0, 0, 0, 0.1);
+  color: #666;
+  font-size: 0.75rem;
+  padding: 4px 12px;
+  border-radius: 12px;
 }
 
-.history-card-header {
+/* 消息通用样式 */
+.chat-message {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-.history-q {
+/* 用户消息（右侧） */
+.chat-message-user {
+  flex-direction: row-reverse;
+}
+
+/* 客服消息（左侧） */
+.chat-message-bot {
+  flex-direction: row;
+}
+
+/* 头像样式 */
+.chat-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
   display: flex;
-  gap: 10px;
-  align-items: baseline;
-  flex: 1;
-  min-width: 0;
-}
-
-.history-q-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--el-color-primary);
-  font-weight: 700;
-  font-size: 0.82rem;
-  flex-shrink: 0;
-}
-
-.history-q-text {
-  font-weight: 650;
-  color: #0f172a;
-  line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-time {
-  flex-shrink: 0;
-  font-size: 0.8rem;
-  color: #94a3b8;
-  padding-top: 2px;
-}
-
-.history-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.history-a {
-  display: flex;
-  gap: 10px;
-}
-
-.history-a-label {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: rgba(15, 118, 110, 0.10);
-  color: #0f766e;
-  font-weight: 700;
-  font-size: 0.82rem;
-  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-top: 1px;
+  font-size: 18px;
 }
 
-.history-a-body {
-  flex: 1;
-  min-width: 0;
+.chat-avatar-user {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
 }
 
-.history-a-text {
-  color: #334155;
-  line-height: 1.6;
-  font-size: 0.9rem;
-  white-space: pre-wrap;
+.chat-avatar-bot {
+  background: linear-gradient(135deg, #11998e, #38ef7d);
+  color: #fff;
+}
+
+/* 气泡样式 */
+.chat-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  position: relative;
   word-break: break-word;
+}
+
+/* 用户气泡（绿色/蓝色） */
+.chat-bubble-user {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+/* 客服气泡（白色） */
+.chat-bubble-bot {
+  background: #fff;
+  color: #333;
+  border-top-left-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: box-shadow 0.2s ease;
+}
+
+.chat-bubble-bot:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* 气泡内容 */
+.chat-bubble-content {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.chat-bubble-bot .chat-bubble-content {
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.history-a-text.expanded {
+.chat-bubble-bot .chat-bubble-content.expanded {
   display: block;
   -webkit-line-clamp: unset;
   overflow: visible;
 }
 
-.history-a-actions {
-  margin-top: 6px;
+/* 展开提示 */
+.chat-expand-tip {
+  font-size: 0.75rem;
+  color: #667eea;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e8e8e8;
+  text-align: center;
 }
 
-.history-card-footer {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed #eef2f7;
+/* 空状态 */
+.history-chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px 20px;
+  text-align: center;
 }
 
-.history-id {
-  color: #94a3b8;
-  font-size: 0.78rem;
-  word-break: break-all;
+.history-chat-empty-icon {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e0e5ec, #f5f7fa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: #a0aec0;
+}
+
+.history-chat-empty-text {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #4a5568;
+  margin-bottom: 8px;
+}
+
+.history-chat-empty-hint {
+  font-size: 0.85rem;
+  color: #a0aec0;
 }
 
 /* === 响应式 === */
