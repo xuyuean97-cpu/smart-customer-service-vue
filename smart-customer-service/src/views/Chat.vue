@@ -420,11 +420,15 @@
     <div class="history-chat-container">
       <!-- 顶部标题栏 -->
       <div class="history-chat-header">
-        <div class="history-chat-title">
+        <div class="history-chat-title" v-if="!expandedConversation">
           <el-icon class="history-chat-icon"><ChatDotRound /></el-icon>
-          <span>聊天记录</span>
+          <span>历史对话</span>
         </div>
-        <div class="history-chat-actions">
+        <div class="history-chat-title history-chat-title-back" v-else @click="backToList">
+          <el-icon class="back-icon"><ArrowLeft /></el-icon>
+          <span>返回列表</span>
+        </div>
+        <div class="history-chat-actions" v-if="!expandedConversation">
           <el-input
             v-model="historyKeyword"
             placeholder="搜索..."
@@ -442,10 +446,20 @@
             class="history-chat-refresh"
           />
         </div>
+        <div class="history-chat-actions" v-else>
+          <el-button
+            type="primary"
+            size="small"
+            class="continue-chat-btn"
+            @click="continueConversation(expandedConversation)"
+          >
+            继续对话
+          </el-button>
+        </div>
       </div>
 
-      <!-- 日期筛选 -->
-      <div class="history-date-filter">
+      <!-- 日期筛选（仅列表视图） -->
+      <div class="history-date-filter" v-if="!expandedConversation">
         <el-date-picker
           v-model="historyDateRange"
           type="daterange"
@@ -459,44 +473,40 @@
         />
       </div>
 
-      <!-- 聊天记录区域 -->
-      <div class="history-chat-messages" v-loading="historyLoading" element-loading-text="加载中...">
-        <template v-if="filteredHistoryItems.length > 0">
-          <div class="history-chat-list">
-            <template v-for="(item, index) in filteredHistoryItems" :key="getHistoryKey(item, index)">
-              <!-- 时间分割线 -->
-              <div class="chat-time-divider">
-                <span>{{ formatHistoryDate(item.created_at || item.updated_at || '') }}</span>
-              </div>
-              
-              <!-- 用户消息（右侧） -->
-              <div class="chat-message chat-message-user">
-                <div class="chat-bubble chat-bubble-user">
-                  <div class="chat-bubble-content">{{ item.query || '（无问题内容）' }}</div>
-                </div>
-                <div class="chat-avatar chat-avatar-user">
-                  <el-icon><User /></el-icon>
-                </div>
-              </div>
-              
-              <!-- 客服回复（左侧） -->
-              <div class="chat-message chat-message-bot">
-                <div class="chat-avatar chat-avatar-bot">
-                  <el-icon><Service /></el-icon>
-                </div>
-                <div class="chat-bubble chat-bubble-bot" @click="toggleHistoryExpanded(item, index)">
-                  <div 
-                    class="chat-bubble-content"
-                    :class="{ expanded: isHistoryExpanded(item, index) }"
-                  >
-                    {{ item.response || item.expert_corrected_response || '（暂无回复）' }}
-                  </div>
-                  <div v-if="!isHistoryExpanded(item, index) && (item.response?.length > 100 || item.expert_corrected_response?.length > 100)" class="chat-expand-tip">
-                    点击展开全部
-                  </div>
+      <!-- 对话组列表视图 -->
+      <div class="history-chat-messages" v-loading="historyLoading" element-loading-text="加载中..." v-if="!expandedConversation">
+        <template v-if="groupedHistoryItems.length > 0">
+          <div class="history-summary">
+            共 {{ groupedHistoryItems.length }} 个对话
+          </div>
+          <div class="history-conversation-list">
+            <div
+              v-for="group in groupedHistoryItems"
+              :key="group.run_id"
+              class="conversation-card"
+              @click="viewConversationDetail(group)"
+            >
+              <div class="conversation-card-left">
+                <div class="conversation-avatar">
+                  <el-icon><ChatDotRound /></el-icon>
                 </div>
               </div>
-            </template>
+              <div class="conversation-card-main">
+                <div class="conversation-card-header">
+                  <div class="conversation-title">{{ group.title }}</div>
+                  <div class="conversation-time">{{ formatHistoryDate(group.lastTime) }}</div>
+                </div>
+                <div class="conversation-preview">
+                  {{ group.messages[group.messages.length - 1]?.response || '暂无回复' }}
+                </div>
+                <div class="conversation-meta">
+                  <span class="conversation-count">{{ group.messageCount }} 条消息</span>
+                </div>
+              </div>
+              <div class="conversation-card-arrow">
+                <el-icon><ArrowRight /></el-icon>
+              </div>
+            </div>
           </div>
         </template>
         
@@ -506,11 +516,58 @@
             <el-icon :size="56"><ChatDotRound /></el-icon>
           </div>
           <div class="history-chat-empty-text">
-            {{ historyKeyword ? '没有找到相关聊天记录' : '暂无聊天记录' }}
+            {{ historyKeyword ? '没有找到相关对话' : '暂无历史对话' }}
           </div>
           <div class="history-chat-empty-hint">
             {{ historyKeyword ? '试试其他关键词' : '开始对话后，记录会显示在这里' }}
           </div>
+        </div>
+      </div>
+
+      <!-- 对话详情视图（聊天气泡形式） -->
+      <div class="history-detail-view" v-else>
+        <div class="history-detail-messages">
+          <template v-for="(item, index) in expandedConversation.messages" :key="index">
+            <!-- 时间分割线 -->
+            <div class="chat-time-divider" v-if="index === 0 || shouldShowTimeDivider(expandedConversation.messages, index)">
+              <span>{{ formatHistoryDate(item.created_at || item.updated_at || '') }}</span>
+            </div>
+            
+            <!-- 用户消息（右侧） -->
+            <div class="chat-message chat-message-user" v-if="item.query">
+              <div class="chat-bubble chat-bubble-user">
+                <div class="chat-bubble-content">{{ item.query }}</div>
+              </div>
+              <div class="chat-avatar chat-avatar-user">
+                <el-icon><User /></el-icon>
+              </div>
+            </div>
+            
+            <!-- 客服回复（左侧） -->
+            <div class="chat-message chat-message-bot" v-if="item.response || item.expert_corrected_response">
+              <div class="chat-avatar chat-avatar-bot">
+                <el-icon><Service /></el-icon>
+              </div>
+              <div class="chat-bubble chat-bubble-bot">
+                <div class="chat-bubble-content expanded">
+                  {{ item.response || item.expert_corrected_response }}
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        
+        <!-- 底部继续对话按钮 -->
+        <div class="history-detail-footer">
+          <el-button
+            type="primary"
+            size="large"
+            class="continue-chat-btn-large"
+            @click="continueConversation(expandedConversation)"
+          >
+            <el-icon class="btn-icon"><ChatDotRound /></el-icon>
+            继续这个对话
+          </el-button>
         </div>
       </div>
     </div>
@@ -537,6 +594,8 @@ import {
   Clock,
   Search,
   Refresh,
+  ArrowLeft,
+  ArrowRight,
 } from '@element-plus/icons-vue'
 import type { ScrollbarInstance } from 'element-plus'
 
@@ -581,6 +640,121 @@ const historyLimit = ref(50)
 const historyDateRange = ref<string[] | null>(null)
 const historyKeyword = ref('')
 const historyExpanded = ref<Record<string, boolean>>({})
+
+// 按 run_id 分组的对话历史
+interface GroupedConversation {
+  run_id: string
+  title: string // 第一条问题作为标题
+  lastTime: string // 最后一条消息时间
+  messageCount: number
+  messages: ConversationHistoryItem[]
+}
+
+const groupedHistoryItems = computed(() => {
+  const kw = historyKeyword.value.trim().toLowerCase()
+  let items = historyItems.value
+  
+  // 搜索过滤
+  if (kw) {
+    items = items.filter((x: any) => {
+      const q = String(x?.query ?? '').toLowerCase()
+      const r = String(x?.response ?? '').toLowerCase()
+      return q.includes(kw) || r.includes(kw)
+    })
+  }
+  
+  // 按 run_id 分组
+  const groups = new Map<string, ConversationHistoryItem[]>()
+  items.forEach((item: any) => {
+    const runId = item.run_id || 'unknown_' + Math.random().toString(36).substr(2, 6)
+    if (!groups.has(runId)) {
+      groups.set(runId, [])
+    }
+    groups.get(runId)!.push(item)
+  })
+  
+  // 转换为数组并排序
+  const result: GroupedConversation[] = []
+  groups.forEach((messages, run_id) => {
+    // 按时间排序消息（升序，早的在前）
+    messages.sort((a, b) => {
+      const timeA = new Date(a.created_at || a.updated_at || 0).getTime()
+      const timeB = new Date(b.created_at || b.updated_at || 0).getTime()
+      return timeA - timeB
+    })
+    
+    const firstMsg = messages[0]
+    const lastMsg = messages[messages.length - 1]
+    
+    result.push({
+      run_id,
+      title: firstMsg?.query || '未知对话',
+      lastTime: lastMsg?.created_at || lastMsg?.updated_at || '',
+      messageCount: messages.length,
+      messages
+    })
+  })
+  
+  // 按最后消息时间降序排列（最新的在前）
+  result.sort((a, b) => {
+    const timeA = new Date(a.lastTime || 0).getTime()
+    const timeB = new Date(b.lastTime || 0).getTime()
+    return timeB - timeA
+  })
+  
+  return result
+})
+
+// 当前展开查看详情的对话组
+const expandedConversation = ref<GroupedConversation | null>(null)
+
+// 查看对话详情
+function viewConversationDetail(group: GroupedConversation) {
+  expandedConversation.value = group
+}
+
+// 返回列表
+function backToList() {
+  expandedConversation.value = null
+}
+
+// 继续该对话 - 加载历史消息到聊天界面
+function continueConversation(group: GroupedConversation) {
+  // 清空当前消息
+  messages.value = []
+  
+  // 将历史消息转换为聊天消息格式
+  group.messages.forEach((item: any) => {
+    // 添加用户问题
+    if (item.query) {
+      messages.value.push({
+        sender: 'user',
+        type: 'text',
+        content: item.query
+      })
+    }
+    // 添加客服回复
+    const response = item.response || item.expert_corrected_response
+    if (response) {
+      messages.value.push({
+        sender: 'assistant',
+        type: 'text',
+        content: response
+      })
+    }
+  })
+  
+  // 关闭抽屉
+  historyVisible.value = false
+  expandedConversation.value = null
+  
+  // 滚动到底部
+  nextTick(() => {
+    scrollToBottom()
+  })
+  
+  ElMessage.success('已加载历史对话，可以继续咨询')
+}
 
 const filteredHistoryItems = computed(() => {
   const kw = historyKeyword.value.trim().toLowerCase()
@@ -661,6 +835,14 @@ function formatHistoryDate(timeStr: string) {
   } catch {
     return timeStr
   }
+}
+
+// 判断是否需要显示时间分割线（间隔超过5分钟）
+function shouldShowTimeDivider(messages: any[], index: number): boolean {
+  if (index === 0) return true
+  const current = new Date(messages[index]?.created_at || messages[index]?.updated_at || 0).getTime()
+  const prev = new Date(messages[index - 1]?.created_at || messages[index - 1]?.updated_at || 0).getTime()
+  return current - prev > 5 * 60 * 1000 // 5分钟
 }
 
 function getOrderStatusType(status: string) {
@@ -1753,16 +1935,36 @@ onUnmounted(() => {
   right: -8px;
 }
 
-/* === 历史对话抽屉 - 聊天记录样式 === */
+/* === 历史对话抽屉 === */
+.history-drawer :deep(.el-drawer__header) {
+  padding: 20px 24px 16px;
+  margin-bottom: 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.history-drawer :deep(.el-drawer__title) {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
 .history-drawer :deep(.el-drawer__body) {
   padding: 0;
 }
 
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f8fafc;
+}
+
+/* 聊天容器 */
 .history-chat-container {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f0f2f5;
+  background: #f5f5f5;
 }
 
 /* 顶部标题栏 */
@@ -1781,6 +1983,19 @@ onUnmounted(() => {
   gap: 10px;
   font-size: 1.1rem;
   font-weight: 600;
+}
+
+.history-chat-title-back {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.history-chat-title-back:hover {
+  opacity: 0.85;
+}
+
+.back-icon {
+  font-size: 18px;
 }
 
 .history-chat-icon {
@@ -1825,6 +2040,17 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.3);
 }
 
+.continue-chat-btn {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  font-weight: 500;
+}
+
+.continue-chat-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 /* 日期筛选 */
 .history-date-filter {
   padding: 12px 16px;
@@ -1836,17 +2062,130 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* 聊天消息区域 */
+/* 消息列表区域 */
 .history-chat-messages {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
 }
 
-.history-chat-list {
+.history-summary {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+/* 对话卡片列表 */
+.history-conversation-list {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.conversation-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.conversation-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.conversation-card:active {
+  transform: translateY(0);
+}
+
+.conversation-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.conversation-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversation-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.conversation-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.conversation-time {
+  font-size: 0.75rem;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.conversation-preview {
+  font-size: 0.85rem;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.conversation-meta {
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.conversation-count {
+  font-size: 0.75rem;
+  color: #999;
+  background: #f0f0f0;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.conversation-card-arrow {
+  color: #ccc;
+  font-size: 16px;
+}
+
+/* 对话详情视图 */
+.history-detail-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-detail-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: #f5f5f5;
 }
 
 /* 时间分割线 */
@@ -1857,8 +2196,8 @@ onUnmounted(() => {
 }
 
 .chat-time-divider span {
-  background: rgba(0, 0, 0, 0.1);
-  color: #666;
+  background: rgba(0, 0, 0, 0.08);
+  color: #888;
   font-size: 0.75rem;
   padding: 4px 12px;
   border-radius: 12px;
@@ -1869,7 +2208,7 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin-bottom: 4px;
+  margin-bottom: 12px;
 }
 
 /* 用户消息（右侧） */
@@ -1913,25 +2252,19 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
-/* 用户气泡（绿色/蓝色） */
+/* 用户气泡 */
 .chat-bubble-user {
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: #fff;
   border-top-right-radius: 4px;
 }
 
-/* 客服气泡（白色） */
+/* 客服气泡 */
 .chat-bubble-bot {
   background: #fff;
   color: #333;
   border-top-left-radius: 4px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-  cursor: pointer;
-  transition: box-shadow 0.2s ease;
-}
-
-.chat-bubble-bot:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 /* 气泡内容 */
@@ -1941,27 +2274,33 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 
-.chat-bubble-bot .chat-bubble-content {
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.chat-bubble-bot .chat-bubble-content.expanded {
+.chat-bubble-content.expanded {
   display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
 }
 
-/* 展开提示 */
-.chat-expand-tip {
-  font-size: 0.75rem;
-  color: #667eea;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #e8e8e8;
-  text-align: center;
+/* 底部按钮区域 */
+.history-detail-footer {
+  padding: 16px 20px;
+  background: #fff;
+  border-top: 1px solid #e8e8e8;
+}
+
+.continue-chat-btn-large {
+  width: 100%;
+  height: 48px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
+.continue-chat-btn-large:hover {
+  opacity: 0.9;
+}
+
+.btn-icon {
+  margin-right: 8px;
 }
 
 /* 空状态 */
@@ -1997,6 +2336,40 @@ onUnmounted(() => {
 .history-chat-empty-hint {
   font-size: 0.85rem;
   color: #a0aec0;
+}
+
+/* 空状态 */
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.history-empty-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  color: #94a3b8;
+}
+
+.history-empty-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.history-empty-desc {
+  font-size: 0.85rem;
+  color: #94a3b8;
 }
 
 /* === 响应式 === */
